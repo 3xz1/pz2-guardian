@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<!-- Loaded in a hidden view to prove the PZ2Guardian overlay serves files. -->
+<script src="../js/common/lib/cohtml.js"></script>
+<script>
+    engine.whenReady.then(function () {
+        var tries = 0;
+        var timer = setInterval(function () {
+            engine.trigger('OnReady');
+            if (++tries >= 40) clearInterval(timer);
+        }, 250);
+    });
+</script>
+</html>

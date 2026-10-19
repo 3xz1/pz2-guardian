@@ -1,0 +1,94 @@
+# Builds the mod and creates a DRAFT GitHub release with the player zip.
+# Start it by pushing a tag:   git tag v1.2.1 && git push origin v1.2.1
+# The tag's version must match the version in the mod's files (check_mod.sh
+# checks those agree). The release stays a draft until you publish it, so
+# the zip can be tried in-game first.
+#
+# Built without the game's Oodle DLL (it can't be in a public repo): the
+# packed files are the same as a local build, only the zlib bytes differ.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      NAME: Guardian
+      # cobra-tools version the mod was built and tested with
+      COBRA_COMMIT: f1d5dbaedfcef6d71ac38e972c7590c9fb57bcb3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          readme="$(head -1 README.md)"
+          case "$readme" in
+            *"(version $version)"*) ;;
+            *) echo "tag says $version, but README.md says: $readme"; exit 1 ;;
+          esac
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # the same toolchain as setup_toolchain.sh, minus the game's DLL
+      - name: Toolchain
+        run: |
+          python -m venv toolchain/venv
+          toolchain/venv/Scripts/python.exe -m pip install -q "imageio>=2.26.0" "numpy>=1.26.4,<2.0.0" "pillow>=10.0.1" "bitarray~=2.9.2" "lupa==2.8" "luaparser==4.2.0"
+          git -c core.longpaths=true init -q toolchain/cobra-tools
+          git -C toolchain/cobra-tools config core.longpaths true
+          git -C toolchain/cobra-tools remote add origin https://github.com/OpenNaja/cobra-tools.git
+          git -C toolchain/cobra-tools fetch -q --depth 1 origin "$COBRA_COMMIT"
+          git -C toolchain/cobra-tools checkout -q FETCH_HEAD
+
+      - name: Checks
+        run: bash tools/check_mod.sh .
+
+      - name: Build
+        run: bash tools/build_mod.sh .
+
+      - name: Zip and release notes
+        run: |
+          zip="$NAME $VERSION.zip"
+          echo "ZIP=$zip" >> "$GITHUB_ENV"
+          python - "$VERSION" "$zip" <<'PY'
+          import os, re, sys, zipfile
+          version, out = sys.argv[1:3]
+          with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+              for root, _, files in os.walk("dist"):
+                  for f in files:
+                      full = os.path.join(root, f)
+                      z.write(full, os.path.relpath(full, "dist"))
+          # this version's entry from README.md: "### X.Y.Z" up to the next heading
+          lines, on = [], False
+          for line in open("README.md", encoding="utf-8").read().splitlines():
+              if line.startswith("#"):
+                  on = line.strip() == f"### {version}"
+              elif on:
+                  lines.append(line)
+          notes = "\n".join(lines).strip() or f"Version {version}"
+          notes += "\n\nInstall: copy the Win64 folder from the zip into the Planet Zoo 2 game folder (see README.md in the zip)."
+          open("notes.md", "w", encoding="utf-8").write(notes)
+          PY
+          cat notes.md
+
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "$ZIP" --draft --title "$NAME $VERSION" --notes-file notes.md

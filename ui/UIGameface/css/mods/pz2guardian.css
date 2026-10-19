@@ -1,0 +1,140 @@
+/* PZ2Guardian button and panel (HUD)
+   Sizes follow the game's UI scaling and the Size setting: main.js sets the
+   button's and panel's font-size in px = design size x (the game's html
+   font-size / 14.4) x Size, and every length here is in em of the rule's
+   own text, so everything scales together. (1rem = 14.4 design px was
+   calibrated in-game at 1920x1080 on 2026-10-18.)
+   Colours: the game's bars and toolbars (--green #596943 with --white
+   #fff2dd text; white buttons with dark green text, no pink). */
+.PZ2GD_toggle {
+    position: fixed;
+    z-index: 9000;
+    padding: 0.4285em 0.8572em;
+    background: #596943;
+    color: #fff2dd;
+    border: 1px solid rgba(255, 242, 221, 0.3);
+    border-radius: 0.2856em;
+    font-size: 14px; /* set by main.js: x UI scale x Size */
+    font-weight: bold;
+    cursor: pointer;
+    pointer-events: auto;
+}
+.PZ2GD_toggle:hover {
+    background: #66784d;
+    border-color: #fff2dd;
+}
+.PZ2GD_toggle.attention {
+    border-color: #f09000;
+    color: #ffd27a;
+}
+.PZ2GD_panel {
+    position: fixed;
+    z-index: 9001;
+    width: 40em;
+    overflow-y: auto;
+    padding: 0.7693em 0.9232em;
+    background: #596943;
+    color: #fff2dd;
+    border: 1px solid rgba(255, 242, 221, 0.3);
+    border-radius: 0.4615em;
+    font-size: 13px; /* set by main.js: x UI scale x Size */
+    pointer-events: auto;
+}
+.PZ2GD_row {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: 0.2308em 0;
+}
+.PZ2GD_name {
+    font-weight: bold;
+    font-size: 1.1538em;
+    margin-right: 0.6667em;
+}
+.PZ2GD_title {
+    font-weight: bold;
+    margin-top: 0.7693em;
+    padding-top: 0.4615em;
+    border-top: 1px solid rgba(255, 242, 221, 0.3);
+    margin-bottom: 0.3076em;
+}
+.PZ2GD_dim {
+    color: rgba(255, 242, 221, 0.75);
+    margin: 0.1539em 0.4615em 0.1539em 0;
+}
+.PZ2GD_dim.grow {
+    flex-grow: 1;
+    flex-shrink: 1;
+    width: 0;
+}
+.PZ2GD_btn {
+    padding: 0.2308em 0.6923em;
+    margin: 0.1539em 0.4615em 0.1539em 0;
+    background: #fff2dd;
+    color: #3c472e;
+    border: 1px solid #fff2dd;
+    border-radius: 0.2308em;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.PZ2GD_btn:hover {
+    background: #ffffff;
+    border-color: #ffffff;
+    color: #3c472e;
+}
+.PZ2GD_btn.on {
+    background: #fff2dd;
+    color: #3c472e;
+    border-color: #fff2dd;
+    font-weight: bold;
+}
+.PZ2GD_box {
+    max-height: 13.8462em;
+    overflow-y: auto;
+    padding: 0.3076em 0.4615em;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 0.2308em;
+}
+.PZ2GD_box.log {
+    white-space: pre-wrap;
+    font-size: 0.9231em;
+}
+.PZ2GD_line {
+    margin: 0.1539em 0;
+}
+.PZ2GD_line.dim {
+    color: rgba(255, 242, 221, 0.75);
+}
+.PZ2GD_btn.step {
+    width: 1.077em;
+    text-align: center;
+    font-weight: bold;
+}
+.PZ2GD_value {
+    width: 4.3077em;
+    text-align: center;
+    margin-right: 0.4615em;
+    font-weight: bold;
+}
+.PZ2GD_results {
+    margin: 0.1539em 0 0.3076em 0;
+}
+.PZ2GD_tr {
+    display: flex;
+    flex-direction: row;
+    padding: 0.1539em 0;
+}
+.PZ2GD_tr.head {
+    color: rgba(255, 242, 221, 0.75);
+    border-bottom: 1px solid rgba(255, 242, 221, 0.3);
+}
+.PZ2GD_td {
+    width: 7.0769em;
+    flex-shrink: 0;
+    text-align: center;
+}
+.PZ2GD_td:first-child {
+    width: 7.3845em;
+    text-align: left;
+}

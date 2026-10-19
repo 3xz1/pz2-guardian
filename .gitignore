@@ -1,0 +1,16 @@
+# build output: players get the zip from GitHub Releases / Nexus
+dist/
+.build/
+release/*.zip
+*.ovl
+*.zip
+
+# local / CI toolchain (cobra-tools checkout, Python venv)
+toolchain/
+
+# never commit game files
+*.fdb
+*.luac
+
+__pycache__/
+*.pyc

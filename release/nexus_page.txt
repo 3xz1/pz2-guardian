@@ -1,0 +1,96 @@
+=== TITLE ===
+Guardian - No Escapes and No Stuck Transport Boxes
+
+=== BRIEF OVERVIEW (Nexus "summary", max 350 characters) ===
+Animals keep escaping or end up sitting in transport boxes? Guardian switches escapes off, sends a keeper for any animal that still gets out, and unboxes animals left stuck in a box in their own habitat. Every part can be switched off, the wait times are adjustable, and a panel shows what it did.
+
+=== DESCRIPTION (paste into the BBCode editor) ===
+[size=5][b]Guardian[/b][/size]
+[i]Stops escapes, brings escaped animals home, unboxes animals stuck in transport boxes.[/i]
+
+Animals climbing out of habitats, guests running off, and animals sitting in transport boxes for no clear reason: Guardian handles all of it in the background. A small button and panel in the park show what it is doing.
+
+[size=4][b]Features[/b][/size]
+[list]
+[*][b]Block escapes[/b] (on): switches animal escapes off. This is the same switch as the Sandbox option "Animal Escapes", applied in any park.
+[*][b]Send escapees home[/b] (on): an escaped animal, or one left boxed outside its habitat, is brought back by a keeper.
+[*][b]Unbox stuck animals[/b] (on): an animal left in a transport box inside its own habitat, with no move under way, is let out, just like pressing the game's Unbox button.
+[*][b]Paid emergency capture[/b] (off): an animal that stays loose too long is caught with the game's Emergency Capture. This costs money, so it's off by default.
+[*][b]Adjustable wait times[/b]: set with -/+ buttons, in real seconds, so game speed doesn't change them.
+[*][b]Results[/b]: counts for this session and all time: unboxed, sent home, back in habitat, emergency captured.
+[*][b]Diagnose[/b]: one click shows the details of every escaped or boxed animal, handy for bug reports.
+[*][b]In the Esc menu[/b]: a "Mods" box next to the game's menu opens the panel. The screen button can be switched off if you'd rather not see it.
+[*][b]Size[/b]: make the panel and button smaller or bigger (50-200 %). They also follow your screen resolution and the game's UI scale.
+[/list]
+
+[size=4][b]Default wait times[/b][/size]
+[list]
+[*]Escaped, before a keeper is sent: 15 s
+[*]Boxed outside its habitat, before it is sent home: 30 s
+[*]Boxed in its own habitat, before it is unboxed: 10 s
+[*]Between two tries for the same animal: 45 s
+[*]Escaped, before the paid emergency capture: 120 s
+[/list]
+The wait gives the game's own staff the first chance, and a box you made on purpose stays shut for a while.
+
+[size=4][b]What it leaves alone[/b][/size]
+[list]
+[*]Animals already being moved (by a keeper, the vet, you or another mod).
+[*]Animals being carried, or in the Trade Centre, quarantine or the vet surgery.
+[*]Animals a vet has tranquillised.
+[*]Everything while the game is paused.
+[*]An animal the game keeps putting back in its box: after 3 tries it is left alone for 2 minutes (the panel says why).
+[*]A box in a broken habitat (open gate or broken barrier) stays shut, so the animal doesn't walk straight out again. Repair the habitat first.
+[/list]
+
+[size=4][b]Why animals escape[/b][/size]
+Climbing animals get over walls that aren't climb-proof, any animal crosses a null barrier with nothing natural on top, and worn-out barriers break (Fence Dilapidation). The vet then tranquillises the escapee and puts it in a transport box for the trip home, which is where most "random" boxes come from.
+
+[size=4][b]Installation[/b][/size]
+[list=1]
+[*]In Steam: right-click Planet Zoo 2 > Manage > Browse local files.
+[*]Copy the [b]Win64[/b] folder from the zip into that game folder and choose "Replace" / merge. Nothing of the game is overwritten; only a new PZ2Guardian folder is added.
+[*]Check that [i]Planet Zoo 2\Win64\ovldata\PZ2Guardian\Main.ovl[/i] exists.
+[*]Start the game. The one-time "modifications detected" notice is normal.
+[/list]
+[b]Uninstall:[/b] delete [i]Planet Zoo 2\Win64\ovldata\PZ2Guardian[/i].
+[b]Update:[/b] copy the new Win64 folder over the old one.
+
+[size=4][b]Compatibility[/b][/size]
+Works alongside [b]Mike's QoL Toolbox[/b] (formerly Genes & Gold, PZ2QoL): both share the in-park screen. Works alongside [b]AutoHub[/b]: both share the in-park screen and the "Mods" box in the Esc menu. No game files are changed. The only thing written is Guardian's own small entry in your player profile (its settings); nothing goes into park saves or online saves.
+
+[size=4][b]Changelog[/b][/size]
+[b]1.2.0[/b]
+[list]
+[*]Settings, wait times and the all-time totals are now saved for good. They were lost every time the game closed, because the game's UI forgets them; they are now kept in your player profile. Set them once more after updating.
+[*]With Mike's QoL Toolbox installed, its park launcher (Species board, Autosave) now also shows when Guardian's screen is used.
+[*]Diagnose also shows whether the settings were saved.
+[/list]
+[b]1.1.0[/b]
+[list]
+[*]Guardian is now in the game's Esc menu ("Mods" box next to Save / Load / Settings).
+[*]The screen button can be hidden ("Screen button" in the panel).
+[*]Smaller default size: the new 100 % is the old 70 % (range 50-200 %). A size you set before is kept as it looked.
+[*]The button and panel now use the game's green UI colours, so they blend in with the game's bars and menus.
+[/list]
+[b]1.0.3[/b]
+[list]
+[*][b]Fixed:[/b] when the game put an animal straight back in its box (seen in Franchise zoos, where the server can refuse the unbox), Guardian kept retrying forever. It now stops after 3 tries and leaves that animal alone for 2 minutes; the panel says why.
+[*][b]Fixed:[/b] "Unboxed" in the Results also counted animals that went straight back into their box. It now only counts animals that stayed out for a minute.
+[*]Diagnose now also shows what Guardian is tracking.
+[/list]
+[b]1.0.2[/b]
+[list]
+[*]New Size setting in the panel (50-150 %): makes the panel and button smaller or bigger, on top of the automatic scaling. Saved for all parks.
+[/list]
+[b]1.0.1[/b]
+[list]
+[*]The button and panel now scale with your screen resolution and the game's UI scale option, like the game's own panels (same size as before at 1920x1080).
+[*]Diagnose shows the UI scale numbers.
+[/list]
+[b]1.0.0[/b]: first release.
+
+[size=4][b]Bug reports[/b][/size]
+Please open the panel, click [b]Diagnose[/b] and post a screenshot of it with your report.
+
+[i]Unofficial fan mod, not affiliated with Frontier Developments.[/i]
