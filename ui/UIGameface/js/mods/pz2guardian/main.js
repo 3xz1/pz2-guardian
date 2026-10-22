@@ -11,7 +11,7 @@
 import { loadCSS } from '/js/common/util/CSSUtil.js';
 import { addPauseMenuEntry, refreshPauseMenu } from './pausemenu.js';
 
-const VERSION = '1.2.0';
+const VERSION = '1.2.2';
 const SHOW_BTN_KEY = 'PZ2Guardian.screenButton';
 const TICK_MS = 3000;
 const POS_KEY = 'PZ2Guardian.buttonPos';

@@ -63,11 +63,22 @@ Guard.nBlockEvery = 10      -- re-apply the escape switch this often
 -- puts it back in the box sooner (seen in Franchise: the server refuses and
 -- the animal snaps back), that is a bounce; after nBounceMax bounces, or
 -- nBounceMax unbox tries that change nothing, it is left alone for nHold.
+-- Only in Franchise (or when the mode is unknown): offline, a refused unbox
+-- costs nothing, and holding left animals boxed until guests protested
+-- (career, aquatic animals the game kept reboxing).
 Guard.nStayOut = 60
 Guard.nBounceMax = 3
+-- Offline (Career / Sandbox) a quick rebox is the game's, not the player's:
+-- no unbox wait. After nBounceMax quick reboxes the animal likely sits on a
+-- spot it can't use (a box opens where it stands, so it lands there again):
+-- a keeper is asked to carry it into its habitat instead, up to nRelocMax
+-- times, then it is unboxed in place again.
+Guard.nRelocMax = 3
+Guard.nRelocWait = 6        -- no keeper job this long after asking: unbox in place
 Guard.nHold = 120
 Guard.tOut = {}             -- entity ID -> { at = time it got out, n = bounces, name }
 Guard.nLastTick = nil
+Guard.sMode = "unknown"     -- "franchise" | "offline" | "unknown" (read every tick)
 
 Guard.tSeen = {}            -- entity ID -> { state, since, last, tries, note }
 Guard.tLog = {}
@@ -124,6 +135,33 @@ Guard.IsPaused = function(self)
 		return api.time.GetDeltaTime() == 0 and api.time.GetDeltaTimeUnscaled() > 0
 	end)
 	return bOk and b or false
+end
+
+-- the scenario manager's IsFranchiseMode, as the game's own panels ask it
+Guard._ReadMode = function(self)
+	local bOk, b = pcall(function()
+		local oScript = api.world.GetScript(api.world.GetActive())
+		return oScript.tEnvironment:RequestInterface("Interfaces.IScenarioManager"):IsFranchiseMode()
+	end)
+	if not bOk or type(b) ~= "boolean" then
+		return "unknown"
+	end
+	return b and "franchise" or "offline"
+end
+
+-- what the game says about a box that came back (shown in the row, so a
+-- Diagnose screenshot tells what keeps boxing it)
+Guard._BoxFacts = function(self, t, nID, nHab)
+	local A = t.animals
+	return "habitat valid " .. tostring(ask(t.habitat, "IsHabitatValid", nHab))
+		.. ", location " .. tostring(ask(A, "GetCurrentLocationType", nID))
+		.. ", game asked for the box " .. tostring(ask(A, "IsAnimalRequestingBoxed", nID))
+		.. ", waits for paths " .. tostring(ask(A, "IsBoxWaitingForNavMeshRebuild", nID))
+end
+
+-- hold an animal the game keeps reboxing? (a server may be refusing)
+Guard._MayHold = function(self)
+	return self.sMode ~= "offline"
 end
 
 local function idList(v)
@@ -418,6 +456,7 @@ Guard.Tick = function(self)
 	self.nTicks = self.nTicks + 1
 	local nNow = now()
 	self:_Block(t, nNow)
+	self.sMode = self:_ReadMode()
 	local bPaused = self:IsPaused()
 	self.bPaused = bPaused
 	local tNew = {}
@@ -440,8 +479,14 @@ Guard.Tick = function(self)
 					o.n = o.n + 1
 					o.at = nil
 					rec.bounces = o.n
-					self:Log(rec.name .. ": back in the box after " .. o.n .. " unbox(es)")
-					if o.n >= self.nBounceMax then
+					o.facts = self:_BoxFacts(t, nID, nHab)
+					rec.facts = o.facts
+					self:Log(rec.name .. ": back in the box after " .. o.n .. " unbox(es) (" .. o.facts .. ")")
+					if not self:_MayHold() then
+						-- not the player's box: no unbox wait
+						rec.since = nNow - self.nUnboxGrace
+					end
+					if o.n >= self.nBounceMax and self:_MayHold() then
 						rec.holdUntil = nNow + self.nHold
 						rec.holdWhy = "the game keeps putting it back in the box (in Franchise the server may refuse)"
 					end
@@ -450,6 +495,17 @@ Guard.Tick = function(self)
 			if rec.holdUntil and nNow < rec.holdUntil then
 				rec.note = tostring(rec.holdWhy) .. "; left alone for "
 					.. math.max(1, math.floor((rec.holdUntil - nNow) / 60 + 0.5)) .. " min"
+			end
+			if rec.relocAt and sState == "boxedHome" and nNow - rec.relocAt >= self.nRelocWait then
+				-- asked for a keeper, none came: unbox in place, and don't ask again
+				-- for this animal until it has stayed out
+				rec.relocAt = nil
+				rec.last = nil
+				local o = self.tOut[nID]
+				if o then
+					o.relocs = self.nRelocMax
+				end
+				self:Log(rec.name .. ": no keeper came, unboxing in place")
 			end
 			rec.hab = nHab
 			tNew[nID] = rec
@@ -486,6 +542,8 @@ Guard.Tick = function(self)
 	for nID, o in pairs(self.tOut) do
 		if o.at and not o.counted and nNow - o.at >= self.nStayOut then
 			o.counted = true
+			o.n = 0
+			o.relocs = 0
 			self.tCount.unboxed = self.tCount.unboxed + 1
 		end
 		if o.at == nil and not tNew[nID] then
@@ -504,12 +562,33 @@ Guard._Act = function(self, t, nID, nHab, rec, nNow)
 		if not self.tSettings.unbox then
 			return
 		end
-		rec.tries = (rec.tries or 0) + 1
-		bDone = self:_Unbox(t, nID, nHab, rec)
+		local o = self.tOut[nID]
+		if o and o.n >= self.nBounceMax and (o.relocs or 0) < self.nRelocMax and self.tSettings.ret
+			and not self:_MayHold() then
+			-- keeps landing on a bad spot: a keeper carries it in
+			o.relocs = (o.relocs or 0) + 1
+			bDone = self:_SendHome(t, nID, nHab, rec)
+			if bDone then
+				rec.unboxed = true
+				rec.relocAt = nNow
+				rec.note = "reboxed " .. o.n .. " times: keeper asked to carry it to a better spot (move "
+					.. o.relocs .. " of " .. self.nRelocMax .. ")"
+			end
+		end
+		if not bDone then
+			rec.tries = (rec.tries or 0) + 1
+			bDone = self:_Unbox(t, nID, nHab, rec)
+			if bDone and o and (o.relocs or 0) >= self.nRelocMax then
+				rec.note = "unboxed; reboxed " .. o.n .. " times, moving it didn't help: check this spot in the habitat"
+			end
+		end
+		if rec.facts then
+			rec.note = tostring(rec.note) .. " [" .. rec.facts .. "]"
+		end
 		if bDone then
 			rec.unboxed = true
 			-- asked but still boxed at the next tries: the game ignores it
-			if rec.tries >= self.nBounceMax then
+			if rec.tries >= self.nBounceMax and self:_MayHold() then
 				rec.holdUntil = nNow + self.nHold
 				rec.holdWhy = "unboxed " .. rec.tries .. " times, still in the box"
 				rec.note = rec.holdWhy .. "; left alone for " .. math.floor(self.nHold / 60) .. " min"
@@ -597,6 +676,7 @@ Guard.Diagnose = function(self)
 	local bOkS, fnS = pcall(function() return t.staff.CanStaffDeliverAnimalToFacility end)
 	tOut[#tOut + 1] = "staff.CanStaffDeliverAnimalToFacility: " .. ((bOkS and type(fnS) == "function") and "yes" or "MISSING")
 	tOut[#tOut + 1] = "escape block: " .. tostring(self.sBlock) .. "; paused " .. tostring(self:IsPaused())
+		.. "; mode " .. self:_ReadMode() .. " (bounce hold " .. (self:_MayHold() and "on" or "off") .. ")"
 	local nNow = now()
 	tOut[#tOut + 1] = "ticks " .. self.nTicks .. ", last tick "
 		.. (self.nLastTick and (math.floor(nNow - self.nLastTick) .. " s ago") or "never")
@@ -606,8 +686,9 @@ Guard.Diagnose = function(self)
 			rec.holdUntil and nNow < rec.holdUntil and ", ON HOLD" or "", tostring(rec.note))
 	end
 	for nID, o in pairs(self.tOut) do
-		tOut[#tOut + 1] = string.format("out of box: %s [%s] %s, bounces %d", tostring(o.name), tostring(nID),
-			o.at and (math.floor(nNow - o.at) .. " s ago" .. (o.counted and ", counted" or "")) or "back in the box", o.n or 0)
+		tOut[#tOut + 1] = string.format("out of box: %s [%s] %s, bounces %d, keeper moves %d%s", tostring(o.name), tostring(nID),
+			o.at and (math.floor(nNow - o.at) .. " s ago" .. (o.counted and ", counted" or "")) or "back in the box", o.n or 0,
+			o.relocs or 0, o.facts and (" | last rebox: " .. o.facts) or "")
 	end
 	local tIDs = self:_Animals(t)
 	tOut[#tOut + 1] = "animals checked: " .. #tIDs

@@ -1,4 +1,4 @@
-# Guardian for Planet Zoo 2 (version 1.2.0)
+# Guardian for Planet Zoo 2 (version 1.2.2)
 
 Stops escapes, brings escaped animals home, unboxes animals stuck in
 transport boxes.
@@ -74,8 +74,10 @@ home, back in their habitat, and emergency captured (when switched on).
 - Animals being carried, in the Trade Centre, quarantine or vet surgery.
 - Animals a vet has tranquillised.
 - Everything while the game is paused.
-- An animal the game keeps putting back in its box: after 3 tries it is
-  left alone for 2 minutes (the panel says why).
+- An animal the game keeps putting back in its box, in Franchise zoos:
+  after 3 tries it is left alone for 2 minutes (the panel says why).
+  In Career and Sandbox Guardian keeps unboxing it, and after 3 quick
+  reboxes asks a keeper to carry it to a better spot.
 - A box in a broken habitat (open gate or broken barrier) stays shut, so
   the animal doesn't walk straight out again. Repair the habitat first.
 
@@ -97,6 +99,26 @@ most "random" boxes come from.
   and survive a game restart.
 
 ## Changes
+
+### 1.2.2
+- Fixed: in Career and Sandbox, animals the game kept boxing again
+  (seen with aquatic animals) stayed boxed for minutes, long enough
+  for guest protests. Guardian worked for a few minutes after
+  loading and then seemed to stop. The 2-minute pause after 3 tries
+  is now for Franchise zoos only (where the server can refuse).
+- Career and Sandbox: an animal boxed again within a minute of being
+  unboxed is unboxed at once (no 10 s wait; that box isn't yours).
+- Career and Sandbox: after 3 quick reboxes the animal probably sits
+  on a spot it can't use, and a box opens where it stands. Guardian
+  then asks a keeper to carry it into the habitat instead (up to 3
+  times). If no keeper comes, or that doesn't help, it goes back to
+  unboxing in place, and the panel says to check that spot.
+- The panel row and Diagnose show what the game said at each rebox
+  (habitat valid, location, whether the game asked for the box).
+- Counts start over once an animal has stayed out of its box for a
+  minute.
+- Diagnose now also answers when Guardian has paused itself (it
+  pauses while a park closes) and shows the zoo mode.
 
 ### 1.2.0
 - Settings, wait times and the all-time totals are now saved for
