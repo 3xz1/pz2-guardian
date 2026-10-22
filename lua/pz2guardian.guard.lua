@@ -69,13 +69,22 @@ Guard.nBlockEvery = 10      -- re-apply the escape switch this often
 Guard.nStayOut = 60
 Guard.nBounceMax = 3
 -- Offline (Career / Sandbox) a quick rebox is the game's, not the player's:
--- no unbox wait. After nBounceMax quick reboxes the animal likely sits on a
--- spot it can't use (a box opens where it stands, so it lands there again):
--- a keeper is asked to carry it into its habitat instead, up to nRelocMax
--- times, then it is unboxed in place again.
-Guard.nRelocMax = 3
-Guard.nRelocWait = 6        -- no keeper job this long after asking: unbox in place
+-- no unbox wait. Unboxed nRelocAfter times within nRelocWindow, the animal
+-- likely sits on a spot it can't use (a box opens where it stands, so it
+-- lands there again): it is transported to its habitat instead, and the
+-- count starts over. In Franchise (unbox wait kept, so 30 s is too short)
+-- it is transported once after nBounceMax reboxes; reboxed again after that,
+-- the hold above applies.
+Guard.nRelocAfter = 3
+Guard.nRelocWindow = 30
+Guard.nRelocWait = 6        -- no transport job this long after asking: unbox in place
 Guard.nHold = 120
+-- Franchise (or unknown mode): every action is a server request, so the whole
+-- zoo sends at most one every nServerGap seconds; the animal that has waited
+-- longest goes first, the rest stay queued
+Guard.nServerGap = 2
+Guard.nLastServer = nil
+Guard.nQueued = 0
 Guard.tOut = {}             -- entity ID -> { at = time it got out, n = bounces, name }
 Guard.nLastTick = nil
 Guard.sMode = "unknown"     -- "franchise" | "offline" | "unknown" (read every tick)
@@ -460,6 +469,8 @@ Guard.Tick = function(self)
 	local bPaused = self:IsPaused()
 	self.bPaused = bPaused
 	local tNew = {}
+	local bLimit = self:_MayHold()
+	local tDue = {}
 	for _, nID in ipairs(self:_Animals(t)) do
 		local sState, nHab, sWhy = self:Classify(t, nID)
 		if sState ~= "ok" and sState ~= "skip" then
@@ -486,7 +497,8 @@ Guard.Tick = function(self)
 						-- not the player's box: no unbox wait
 						rec.since = nNow - self.nUnboxGrace
 					end
-					if o.n >= self.nBounceMax and self:_MayHold() then
+					if o.n >= self.nBounceMax and self:_MayHold()
+						and ((o.streakMoves or 0) > 0 or not self.tSettings.ret) then
 						rec.holdUntil = nNow + self.nHold
 						rec.holdWhy = "the game keeps putting it back in the box (in Franchise the server may refuse)"
 					end
@@ -497,15 +509,11 @@ Guard.Tick = function(self)
 					.. math.max(1, math.floor((rec.holdUntil - nNow) / 60 + 0.5)) .. " min"
 			end
 			if rec.relocAt and sState == "boxedHome" and nNow - rec.relocAt >= self.nRelocWait then
-				-- asked for a keeper, none came: unbox in place, and don't ask again
-				-- for this animal until it has stayed out
+				-- asked for a transport, none came: unbox in place (the count was
+				-- reset, so the next transport comes after nRelocAfter more unboxes)
 				rec.relocAt = nil
 				rec.last = nil
-				local o = self.tOut[nID]
-				if o then
-					o.relocs = self.nRelocMax
-				end
-				self:Log(rec.name .. ": no keeper came, unboxing in place")
+				self:Log(rec.name .. ": no transport came, unboxing in place")
 			end
 			rec.hab = nHab
 			tNew[nID] = rec
@@ -514,11 +522,36 @@ Guard.Tick = function(self)
 				and (rec.last == nil or nNow - rec.last >= self.nRetry)
 				and not (rec.holdUntil and nNow < rec.holdUntil)
 			if bDue and not bPaused then
-				self:_Act(t, nID, nHab, rec, nNow)
+				if bLimit then
+					tDue[#tDue + 1] = { nID = nID, nHab = nHab, rec = rec, nWait = nNow - (rec.last or rec.since) }
+				else
+					self:_Act(t, nID, nHab, rec, nNow)
+				end
 			elseif sGrace == nil then
 				rec.note = sWhy
 			end
 		end
+	end
+	self.nQueued = 0
+	if #tDue > 0 then
+		table.sort(tDue, function(a, b)
+			if a.nWait ~= b.nWait then
+				return a.nWait > b.nWait
+			end
+			return a.nID < b.nID
+		end)
+		local iFirst = 1
+		if self.nLastServer == nil or nNow - self.nLastServer >= self.nServerGap or nNow < self.nLastServer then
+			local d = tDue[1]
+			self:_Act(t, d.nID, d.nHab, d.rec, nNow)
+			self.nLastServer = nNow
+			iFirst = 2
+		end
+		for i = iFirst, #tDue do
+			tDue[i].rec.note = "queued: Franchise, 1 server request every " .. self.nServerGap .. " s ("
+				.. (#tDue - iFirst + 1) .. " waiting)"
+		end
+		self.nQueued = #tDue - iFirst + 1
 	end
 	-- an animal that is fine again: say so once
 	for nID, rec in pairs(self.tSeen) do
@@ -543,7 +576,7 @@ Guard.Tick = function(self)
 		if o.at and not o.counted and nNow - o.at >= self.nStayOut then
 			o.counted = true
 			o.n = 0
-			o.relocs = 0
+			o.streakMoves = 0
 			self.tCount.unboxed = self.tCount.unboxed + 1
 		end
 		if o.at == nil and not tNew[nID] then
@@ -563,23 +596,43 @@ Guard._Act = function(self, t, nID, nHab, rec, nNow)
 			return
 		end
 		local o = self.tOut[nID]
-		if o and o.n >= self.nBounceMax and (o.relocs or 0) < self.nRelocMax and self.tSettings.ret
-			and not self:_MayHold() then
-			-- keeps landing on a bad spot: a keeper carries it in
-			o.relocs = (o.relocs or 0) + 1
+		if not o then
+			o = { n = 0, name = rec.name }
+			self.tOut[nID] = o
+		end
+		-- unbox times in the last nRelocWindow seconds
+		local tTimes = {}
+		for _, nAt in ipairs(o.tUnboxed or {}) do
+			if nNow - nAt < self.nRelocWindow then
+				tTimes[#tTimes + 1] = nAt
+			end
+		end
+		o.tUnboxed = tTimes
+		local bMove
+		if self:_MayHold() then
+			-- Franchise: once per bad streak, the hold comes after it
+			bMove = o.n >= self.nBounceMax and (o.streakMoves or 0) == 0
+		else
+			bMove = #tTimes >= self.nRelocAfter
+		end
+		if bMove and self.tSettings.ret then
+			-- keeps landing on a bad spot: transport it to its habitat, start over
+			o.tUnboxed = {}
+			o.moves = (o.moves or 0) + 1
+			o.streakMoves = (o.streakMoves or 0) + 1
 			bDone = self:_SendHome(t, nID, nHab, rec)
 			if bDone then
 				rec.unboxed = true
 				rec.relocAt = nNow
-				rec.note = "reboxed " .. o.n .. " times: keeper asked to carry it to a better spot (move "
-					.. o.relocs .. " of " .. self.nRelocMax .. ")"
+				rec.note = (self:_MayHold() and ("reboxed " .. o.n .. " times: ")
+					or ("unboxed " .. #tTimes .. " times in " .. self.nRelocWindow .. " s: ")) .. tostring(rec.note)
 			end
 		end
 		if not bDone then
 			rec.tries = (rec.tries or 0) + 1
 			bDone = self:_Unbox(t, nID, nHab, rec)
-			if bDone and o and (o.relocs or 0) >= self.nRelocMax then
-				rec.note = "unboxed; reboxed " .. o.n .. " times, moving it didn't help: check this spot in the habitat"
+			if bDone then
+				o.tUnboxed[#o.tUnboxed + 1] = nNow
 			end
 		end
 		if rec.facts then
@@ -678,6 +731,9 @@ Guard.Diagnose = function(self)
 	tOut[#tOut + 1] = "escape block: " .. tostring(self.sBlock) .. "; paused " .. tostring(self:IsPaused())
 		.. "; mode " .. self:_ReadMode() .. " (bounce hold " .. (self:_MayHold() and "on" or "off") .. ")"
 	local nNow = now()
+	tOut[#tOut + 1] = "server limit: " .. (self:_MayHold() and ("on, 1 request every " .. self.nServerGap .. " s, last "
+		.. (self.nLastServer and (math.floor(nNow - self.nLastServer) .. " s ago") or "never") .. ", queued " .. self.nQueued)
+		or "off (no server in this mode)")
 	tOut[#tOut + 1] = "ticks " .. self.nTicks .. ", last tick "
 		.. (self.nLastTick and (math.floor(nNow - self.nLastTick) .. " s ago") or "never")
 	for nID, rec in pairs(self.tSeen) do
@@ -686,9 +742,9 @@ Guard.Diagnose = function(self)
 			rec.holdUntil and nNow < rec.holdUntil and ", ON HOLD" or "", tostring(rec.note))
 	end
 	for nID, o in pairs(self.tOut) do
-		tOut[#tOut + 1] = string.format("out of box: %s [%s] %s, bounces %d, keeper moves %d%s", tostring(o.name), tostring(nID),
-			o.at and (math.floor(nNow - o.at) .. " s ago" .. (o.counted and ", counted" or "")) or "back in the box", o.n or 0,
-			o.relocs or 0, o.facts and (" | last rebox: " .. o.facts) or "")
+		tOut[#tOut + 1] = string.format("out of box: %s [%s] %s, bounces %d, recent unboxes %d, transports %d%s", tostring(o.name),
+			tostring(nID), o.at and (math.floor(nNow - o.at) .. " s ago" .. (o.counted and ", counted" or "")) or "in the box",
+			o.n or 0, #(o.tUnboxed or {}), o.moves or 0, o.facts and (" | last rebox: " .. o.facts) or "")
 	end
 	local tIDs = self:_Animals(t)
 	tOut[#tOut + 1] = "animals checked: " .. #tIDs
