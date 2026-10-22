@@ -30,7 +30,7 @@ local math      = global.math
 
 local Core = module(...)
 
-Core.sVersion = "1.2.0"
+Core.sVersion = "1.2.2"
 Core.bBooted = false
 
 Core.sOverlayName = "PZ2GuardianUI"
@@ -348,6 +348,7 @@ end
 -- is torn down, and world API calls then crash the engine (AutoHub crash
 -- dumps 2026-10-18).
 Core.bParkLive = true
+Core.sLiveWhy = "start"
 
 Core._PatchDarwinWorld = function(self, DarwinWorld)
 	local function wrap(sName, bLive)
@@ -358,10 +359,12 @@ Core._PatchDarwinWorld = function(self, DarwinWorld)
 		DarwinWorld[sName] = function(...)
 			if not bLive then
 				self.bParkLive = false
+				self.sLiveWhy = sName
 			end
 			local tRes = table.pack(fn(...))
 			if bLive then
 				self.bParkLive = true
+				self.sLiveWhy = sName
 			end
 			return table.unpack(tRes, 1, tRes.n)
 		end
@@ -379,6 +382,7 @@ Core._OnReady = function(self, oUI, sKind)
 	if sKind == "hud" then
 		-- a new park HUD: the park is live (in case OnActivate was missed)
 		self.bParkLive = true
+		self.sLiveWhy = "HUD ready"
 	end
 	local function guarded(sName, nArgCount, fn)
 		listen(oUI, sName, nArgCount, function(...)
@@ -410,10 +414,21 @@ Core._OnReady = function(self, oUI, sKind)
 		Gd:Tick()
 		self:Send(sKind, "PZ2Guardian_State", Gd:UIState())
 	end)
-	guarded("PZ2Guardian_Diagnose", 1, function(Gd)
-		local s = "PZ2Guardian " .. self.sVersion .. " | park live " .. tostring(self.bParkLive) .. " | HUD: " .. tostring(self.tLoadState.hud)
+	-- answers while the park is not live too (without world calls), so a
+	-- Guardian that stopped can say why
+	listen(oUI, "PZ2Guardian_Diagnose", 1, function()
+		local s = "PZ2Guardian " .. self.sVersion .. " | park live " .. tostring(self.bParkLive)
+			.. " (last change: " .. tostring(self.sLiveWhy) .. ") | HUD: " .. tostring(self.tLoadState.hud)
 			.. " | overlay " .. self.sOverlayState .. ", probe " .. tostring(self.bProbeOk)
-			.. "\nsettings store: " .. self:StoreStatus() .. "\n" .. Gd:Diagnose()
+			.. "\nsettings store: " .. self:StoreStatus() .. "\n"
+		if not G then
+			s = s .. "guard module not loaded"
+		elseif sKind == "hud" and not self.bParkLive then
+			s = s .. "PAUSED: Guardian thinks the park is closing, so it does nothing (ticks " .. G.nTicks .. ")"
+		else
+			local bOk, sRes = pcall(G.Diagnose, G)
+			s = s .. (bOk and sRes or ("error in Diagnose: " .. tostring(sRes)))
+		end
 		self:Send(sKind, "PZ2Guardian_DiagnoseResult", s)
 	end)
 	-- the page's settings (no game world calls: not gated by bParkLive)

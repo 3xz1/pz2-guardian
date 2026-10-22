@@ -333,13 +333,15 @@ lua.execute('server = "refuse"')
 animal(lua, 12, hab=500, boxed=True, loc=1, name="Praneel")
 run(lua, 100)
 n = calls(lua).count("UnboxAnimal 12")
-check(n == 3, f"bounced back 3 times -> stops after 3 unboxes, got {n}")
+check("Return 12" in calls(lua), "3 bounces: transported to its habitat once first")
+check(calls(lua).count("Return 12") == 1, "Franchise: only one transport per bad streak")
+check(n == 4, f"no transport came, unboxed once more, bounced -> hold, got {n} unboxes")
 check(G.tCount.unboxed == 0, "bounces are not counted as unboxed")
 rows = json.loads(G.UIState(G))["rows"]
 check(len(rows) == 1 and rows[0]["name"] == "Praneel" and "left alone" in rows[0]["note"], f"row explains the hold, got {rows}")
 check(any("back in the box after 3" in s for s in G.tLog.values()), "logged the bounces")
 run(lua, 125)
-check(calls(lua).count("UnboxAnimal 12") == 4, "tries again after the 2 min hold")
+check(calls(lua).count("UnboxAnimal 12") == 5, "tries again after the 2 min hold")
 d = G.Diagnose(G)
 check("tracking Praneel [12]" in d and "bounces" in d, "diagnose shows what Guardian tracks")
 
@@ -349,15 +351,15 @@ G = guard(lua)
 lua.execute('server = "refuse"')
 animal(lua, 14, hab=500, boxed=True, loc=1)
 run(lua, 100)
-check(calls(lua).count("UnboxAnimal 14") == 3, "refused 3 times -> on hold")
+check(calls(lua).count("UnboxAnimal 14") == 4, "refused 3 times, transport, refused again -> on hold")
 # the player moves it: a keeper job, then it arrives boxed in habitat 600
 lua.execute('server = nil; zoo[14].job = true')
 run(lua, 30)
 lua.execute('zoo[14].job = false; zoo[14].hab = 600; zoo[14].boxed = true')
 run(lua, 9)
-check(calls(lua).count("UnboxAnimal 14") == 3, "new box: normal 10 s wait first")
+check(calls(lua).count("UnboxAnimal 14") == 4, "new box: normal 10 s wait first")
 run(lua, 6)
-check(calls(lua).count("UnboxAnimal 14") == 4, "moved by the player: unboxed after the normal wait, no hold")
+check(calls(lua).count("UnboxAnimal 14") == 5, "moved by the player: unboxed after the normal wait, no hold")
 # you unbox it yourself while on hold: also a fresh start next time
 lua = fresh()
 G = guard(lua)
@@ -368,7 +370,220 @@ lua.execute('server = nil; zoo[15].boxed = false')
 run(lua, 90)
 lua.execute('zoo[15].boxed = true')
 run(lua, 15)
-check(calls(lua).count("UnboxAnimal 15") == 4, "unboxed by hand, boxed again later: handled normally")
+check(calls(lua).count("UnboxAnimal 15") == 5, "unboxed by hand, boxed again later: handled normally")
+
+# --- offline (career / sandbox): the game reboxes it, no hold (1.2.1) ------
+# Career, aquatic animals: the game kept reboxing them and the Franchise hold
+# left them boxed until guests protested.
+OFFLINE = """
+Scenario = { franchise = false }
+function Scenario:IsFranchiseMode() return self.franchise end
+api.world.GetActive = function() return "world" end
+api.world.GetScript = function(w) return { tEnvironment = { RequestInterface = function(_, s)
+  assert(s == "Interfaces.IScenarioManager"); return Scenario end } } end
+"""
+lua = fresh()
+lua.execute(OFFLINE)
+G = guard(lua)
+lua.execute('server = "refuse"')
+animal(lua, 50, hab=500, boxed=True, loc=1)
+run(lua, 300)
+n = calls(lua).count("UnboxAnimal 50")
+check(n >= 15, f"offline: keeps unboxing an animal the game reboxes, got {n} in 5 min")
+check("left alone" not in json.dumps(json.loads(G.UIState(G))["rows"]), "offline: never on hold")
+check("mode offline (bounce hold off)" in G.Diagnose(G), "diagnose shows the mode")
+lua.execute('server = "ignore"')
+animal(lua, 51, hab=500, boxed=True, loc=1)
+run(lua, 300)
+check(calls(lua).count("UnboxAnimal 51") >= 6, "offline: unbox that changes nothing is retried, no hold")
+# 1.2.2: reboxed 5 s after the unbox (the reporter's case)
+KEEPER = """
+function A:IsAnimalRequestingBoxed(id) return zoo[id].wantsBox or false end
+-- a keeper picks it up, carries it 9 s and lets it out on a good spot
+function A:RequestTransportToAssignedHabitat(id)
+  calls[#calls + 1] = "Return " .. id; zoo[id].job = true; zoo[id].deliverAt = T.now + 9
+end
+local st = serverTick
+function serverTick()
+  st()
+  for _, a in pairs(zoo) do
+    if a.deliverAt and T.now >= a.deliverAt then
+      a.job = false; a.boxed = false; a.deliverAt = nil
+      if a.badDelivery then a.reboxAt = T.now + 5 end
+    end
+  end
+end
+"""
+lua = fresh()
+lua.execute(OFFLINE)
+lua.execute(KEEPER)
+G = guard(lua)
+lua.execute('server = "refuse"')
+animal(lua, 60, hab=500, boxed=True, loc=1, wantsBox=True)
+run(lua, 12, step=1)
+check(calls(lua).count("UnboxAnimal 60") == 1, "first box: normal 10 s wait")
+run(lua, 6, step=1)   # reboxed 4 s after the unbox
+c = calls(lua)
+check(c.count("UnboxAnimal 60") == 2, f"quick rebox: unboxed again without the 10 s wait, got {c.count('UnboxAnimal 60')}")
+row = json.loads(G.UIState(G))["rows"]
+check(any("game asked for the box true" in r["note"] for r in row) or any("game asked for the box true" in x for x in G.tLog.values()),
+      "the rebox facts are shown (what boxed it)")
+run(lua, 20, step=1)
+c = calls(lua)
+check("Return 60" in c, "3 quick reboxes: a keeper carries it in instead of unboxing in place")
+check(c.count("UnboxAnimal 60") == 3, f"no 4th unbox in place, got {c.count('UnboxAnimal 60')}")
+run(lua, 80, step=3)
+check(G.tCount.unboxed == 1, f"carried to a good spot, stayed out: counted, got {G.tCount.unboxed}")
+check(G.tOut[60] is None or G.tOut[60].n == 0, "counts start over after it stayed out")
+# the transport doesn't help either: every 3 unboxes in 30 s, transported again
+lua = fresh()
+lua.execute(OFFLINE)
+lua.execute(KEEPER)
+G = guard(lua)
+lua.execute('server = "refuse"')
+animal(lua, 61, hab=500, boxed=True, loc=1, badDelivery=True)
+run(lua, 300, step=1)
+c = [x for x in calls(lua) if x in ("Return 61", "UnboxAnimal 61")]
+n = c.count("Return 61")
+check(n >= 5, f"transported again and again (no limit), got {n} in 5 min")
+runs, cur = [], 0
+for x in c:
+    if x == "Return 61":
+        runs.append(cur); cur = 0
+    else:
+        cur += 1
+check(runs and runs[0] == 3 and all(r >= 2 for r in runs[1:]), f"a transport only after 3 unboxes (the count starts over), got {runs}")
+row = json.loads(G.UIState(G))["rows"]
+check(not row or "unboxed" in row[0]["note"] or "keeper" in row[0]["note"], f"row explains, got {row}")
+d = G.Diagnose(G)
+check("transports" in d and "last rebox:" in d, "diagnose shows transports and the last rebox facts")
+# unboxed 3 times, but not within 30 s: no transport
+lua = fresh()
+lua.execute(OFFLINE)
+lua.execute(KEEPER)
+G = guard(lua)
+animal(lua, 64, hab=500, boxed=True, loc=1)
+for _ in range(4):
+    run(lua, 15, step=1)
+    lua.execute("zoo[64].boxed = false")
+    run(lua, 12, step=1)   # out 12 s, then boxed again: unboxes ~25 s apart
+    lua.execute("zoo[64].boxed = true")
+run(lua, 15, step=1)
+c = calls(lua)
+check("Return 64" not in c and c.count("UnboxAnimal 64") >= 1, f"spread out unboxes: no transport, got {c}")
+# the transport request is accepted but nobody comes: unbox in place soon
+lua = fresh()
+lua.execute(OFFLINE)
+G = guard(lua)
+lua.execute('server = "refuse"')
+animal(lua, 63, hab=500, boxed=True, loc=1)
+run(lua, 40, step=1)
+c = calls(lua)
+check("Return 63" in c, "transport asked after 3 unboxes in 30 s")
+i = c.index("Return 63")
+check("UnboxAnimal 63" in c[i:], "no transport job within a few seconds: unboxed in place")
+check(any("no transport came" in x for x in G.tLog.values()), "logged that no transport came")
+run(lua, 120, step=1)
+check(calls(lua).count("Return 63") >= 2, "after 3 more unboxes in 30 s: asked again")
+
+# Franchise: the transport fixes it -> no hold, counted
+lua = fresh()
+lua.execute(OFFLINE)
+lua.execute(KEEPER)
+lua.execute("Scenario.franchise = true")
+G = guard(lua)
+lua.execute('server = "refuse"')
+animal(lua, 65, hab=500, boxed=True, loc=1)
+run(lua, 100, step=1)
+lua.execute('server = nil')
+run(lua, 100, step=3)
+check(calls(lua).count("Return 65") == 1, "franchise: transported once")
+check("left alone" not in json.dumps(json.loads(G.UIState(G))["rows"]), "franchise: delivered and stays out, no hold")
+# Franchise with "send home" off: hold at once, as before
+lua = fresh()
+lua.execute(OFFLINE)
+lua.execute("Scenario.franchise = true")
+G = guard(lua)
+G.LoadSettings(G, "1,0,1,0")
+lua.execute('server = "refuse"')
+animal(lua, 66, hab=500, boxed=True, loc=1)
+run(lua, 100)
+check(calls(lua).count("UnboxAnimal 66") == 3 and "Return 66" not in calls(lua), "franchise, send home off: hold after 3 bounces")
+
+# --- Franchise: at most 1 server request every 2 s for the whole zoo ---------
+def actions(lua, ids):
+    return [c for c in calls(lua) if any(c in (f"UnboxAnimal {i}", f"Return {i}") for i in ids)]
+lua = fresh()
+lua.execute(OFFLINE)
+lua.execute("Scenario.franchise = true")
+G = guard(lua)
+ids = list(range(80, 85))
+for i in ids:
+    animal(lua, i, hab=500, boxed=True, loc=1)
+seen = []
+for step in range(12):
+    before = len(actions(lua, ids))
+    run(lua, 1, step=1)
+    seen.append(len(actions(lua, ids)) - before)
+check(max(seen) == 1, f"5 boxed at once: never 2 requests in the same second, got {seen}")
+gaps = [i for i, n in enumerate(seen) if n]
+check(all(b - a >= 2 for a, b in zip(gaps, gaps[1:])), f"at least 2 s between requests, got {gaps}")
+rows = json.loads(G.UIState(G))["rows"]
+check(any("queued: Franchise" in r["note"] for r in rows), "queued animals say why they wait")
+run(lua, 10, step=1)
+check(all(f"UnboxAnimal {i}" in calls(lua) for i in ids), "all 5 unboxed within ~20 s")
+check("server limit: on, 1 request every 2 s" in G.Diagnose(G), "diagnose shows the server limit")
+# the longest wait goes first: a new box doesn't push back an older one
+lua = fresh()
+lua.execute(OFFLINE)
+lua.execute("Scenario.franchise = true")
+G = guard(lua)
+for i in (90, 91, 92):
+    animal(lua, i, hab=500, boxed=True, loc=1)
+run(lua, 11, step=1)
+animal(lua, 89, hab=500, boxed=True, loc=1)
+run(lua, 20, step=1)
+order = [c for c in calls(lua) if c.startswith("UnboxAnimal")]
+check(order[:3] == ["UnboxAnimal 90", "UnboxAnimal 91", "UnboxAnimal 92"] and order[3] == "UnboxAnimal 89", f"oldest first, got {order}")
+# Career / Sandbox: no server, no limit
+lua = fresh()
+lua.execute(OFFLINE)
+G = guard(lua)
+for i in ids:
+    animal(lua, i, hab=500, boxed=True, loc=1)
+run(lua, 12, step=1)
+check(all(f"UnboxAnimal {i}" in calls(lua) for i in ids), "offline: all 5 unboxed in the same tick")
+check("server limit: off" in G.Diagnose(G), "offline: diagnose says the limit is off")
+
+# return switched off: no keeper moves, unbox only
+lua = fresh()
+lua.execute(OFFLINE)
+lua.execute(KEEPER)
+G = guard(lua)
+G.LoadSettings(G, "1,0,1,0")
+lua.execute('server = "refuse"')
+animal(lua, 62, hab=500, boxed=True, loc=1)
+run(lua, 120, step=1)
+check("Return 62" not in calls(lua), "'send home' off: no keeper moves for reboxes")
+
+# Franchise read from the game: hold as before
+lua = fresh()
+lua.execute(OFFLINE)
+lua.execute("Scenario.franchise = true")
+G = guard(lua)
+lua.execute('server = "refuse"')
+animal(lua, 52, hab=500, boxed=True, loc=1)
+run(lua, 100)
+check(calls(lua).count("UnboxAnimal 52") == 4 and calls(lua).count("Return 52") == 1, "franchise: transport once, then hold")
+# bounces are forgotten once it stayed out (Franchise)
+lua.execute('server = nil; zoo[52].boxed = false')
+run(lua, 70)
+check(G.tOut[52] is None or G.tOut[52].n == 0, "stayed out 60 s: bounce count starts over")
+lua.execute('server = "refuse"; zoo[52].boxed = true')
+run(lua, 15)
+c0 = calls(lua).count("UnboxAnimal 52")
+run(lua, 30)
+check(calls(lua).count("UnboxAnimal 52") > c0, "after a good stretch, a new bounce is not held at once")
 
 # --- the unbox call changes nothing -----------------------------------------
 lua = fresh()
@@ -435,8 +650,8 @@ run(lua, 200)
 bad = [c for c in calls(lua) if not c.startswith("SetEnableEscapes")]
 check(bad == [], f"paused: no actions, got {bad}")
 lua.execute("T.dt = 0.016")
-run(lua, 3)
-check("Return 16" in calls(lua) and "UnboxAnimal 17" in calls(lua), "acts right after unpausing (grace already over)")
+run(lua, 6)
+check("Return 16" in calls(lua) and "UnboxAnimal 17" in calls(lua), "acts right after unpausing (grace already over; one per tick, server limit)")
 
 # --- emergency capture --------------------------------------------------
 lua = fresh()
@@ -554,13 +769,18 @@ for ev in ("OnDeactivate", "OnQuitRequested", "OnUnload", "OnShutdown"):
     view.Fire(view, "PZ2Guardian_Tick", 1)
     view.Fire(view, "PZ2Guardian_Diagnose", 1)
     view.Fire(view, "PZ2Guardian_Settings", "1,1,1,0")
-    check(calls(lua) == [] and len(lua.globals().sent) == 0, f"after {ev}: no game calls, no answers")
+    sent_names = [e.name for e in lua.globals().sent.values()]
+    check(calls(lua) == [] and sent_names == ["PZ2Guardian_DiagnoseResult"],
+          f"after {ev}: no game calls, only Diagnose answers, got {sent_names}")
+    d = lua.globals().sent[1].args[1]
+    check("PAUSED" in d and ev in d, f"after {ev}: Diagnose says it is paused and why")
 lua.execute('require("Worlds.DarwinWorld").OnActivate()')
 lua.execute("calls = {}; T.now = T.now + 100")
 view.Fire(view, "PZ2Guardian_Tick", 1)
 check("Return 40" in calls(lua) or len(calls(lua)) > 0, "OnActivate (park open again): ticks resume")
 
 # --- settings kept in the player save (1.2.0) ------------------------------
+VERSION = lua.eval('package.loaded["pz2guardian.core"].sVersion')
 # The game's UI keeps localStorage in memory only; the page's settings go
 # to the main player's tData (GetData / SetData, RequestSaveMainPlayer).
 STORE_FAKE = r"""
@@ -596,10 +816,10 @@ lua = fresh()
 lua.execute('require("Database.PZ2GuardianLuaDatabase")')
 lua.execute('package.loaded["pz2guardian.core"].bProbeOk = true')
 view = hud_with_store(lua)
-check(sent_events(lua, "PZ2Guardian_Hello") == [["1.2.0", "", "noplayer"]], "store: no player API yet -> hello says noplayer")
+check(sent_events(lua, "PZ2Guardian_Hello") == [[VERSION, "", "noplayer"]], "store: no player API yet -> hello says noplayer")
 lua.execute(STORE_FAKE)
 view = hud_with_store(lua)
-check(sent_events(lua, "PZ2Guardian_Hello") == [["1.2.0", "", "ok"]], "store: nothing kept yet -> empty, ok")
+check(sent_events(lua, "PZ2Guardian_Hello") == [[VERSION, "", "ok"]], "store: nothing kept yet -> empty, ok")
 text = '{"PZ2Guardian.settings":"{\\"block\\":true,\\"ret\\":false}","PZ2Guardian.times":"{\\"unbox\\":20}"}'
 lua.execute('sent = {}')
 view.Fire(view, "PZ2Guardian_StoreSave", text)
@@ -607,7 +827,7 @@ check(sent_events(lua, "PZ2Guardian_StoreSaved") == [["saved"]], "store: write a
 check(lua.eval("saveRequests") == 1, "store: asks the game to save the player")
 check(list(lua.eval("playerData").keys()) == ["PZ2Guardian"], "store: only our own entry")
 view = hud_with_store(lua)
-check(sent_events(lua, "PZ2Guardian_Hello") == [["1.2.0", text, "ok"]], "store: next HUD gets the saved text")
+check(sent_events(lua, "PZ2Guardian_Hello") == [[VERSION, text, "ok"]], "store: next HUD gets the saved text")
 lua.execute('sent = {}')
 view.Fire(view, "PZ2Guardian_StoreSave", '{"PZ2Guardian.x":"ä"}')
 check(sent_events(lua, "PZ2Guardian_StoreSaved") == [["bad"]], "store: refuses non-ASCII")
