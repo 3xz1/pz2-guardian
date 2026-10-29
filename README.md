@@ -1,4 +1,4 @@
-# Guardian for Planet Zoo 2 (version 1.2.2)
+# Guardian for Planet Zoo 2 (version 1.2.3)
 
 Stops escapes, brings escaped animals home, unboxes animals stuck in
 transport boxes.
@@ -100,6 +100,9 @@ most "random" boxes come from.
   and survive a game restart.
 
 ## Changes
+
+### 1.2.3
+- Fixed: with PZ2 Essentials or More Path Stamp Sizes installed, Guardian's screen button and the "Mods" box in the Esc menu were missing and Guardian did nothing. Guardian now shares the in-park screen with them, so both work, in any install order.
 
 ### 1.2.2
 - Fixed: in Career and Sandbox, animals the game kept boxing again
