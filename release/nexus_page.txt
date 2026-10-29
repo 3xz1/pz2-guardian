@@ -57,9 +57,13 @@ Climbing animals get over walls that aren't climb-proof, any animal crosses a nu
 [b]Update:[/b] copy the new Win64 folder over the old one.
 
 [size=4][b]Compatibility[/b][/size]
-Works alongside [b]Mike's QoL Toolbox[/b] (formerly Genes & Gold, PZ2QoL): both share the in-park screen. Works alongside [b]AutoHub[/b]: both share the in-park screen and the "Mods" box in the Esc menu. No game files are changed. The only thing written is Guardian's own small entry in your player profile (its settings); nothing goes into park saves or online saves.
+Works alongside [b]Mike's QoL Toolbox[/b] (formerly Genes & Gold, PZ2QoL): both share the in-park screen. Works alongside [b]PZ2 Essentials[/b] and [b]More Path Stamp Sizes[/b] (they share the in-park screen). Works alongside [b]AutoHub[/b]: both share the in-park screen and the "Mods" box in the Esc menu. No game files are changed. The only thing written is Guardian's own small entry in your player profile (its settings); nothing goes into park saves or online saves.
 
 [size=4][b]Changelog[/b][/size]
+[b]1.2.3[/b]
+[list]
+[*]Fixed: with PZ2 Essentials or More Path Stamp Sizes installed, Guardian's screen button and the "Mods" box in the Esc menu were missing and Guardian did nothing. Guardian now shares the in-park screen with them, so both work, in any install order.
+[/list]
 [b]1.2.2[/b]
 [list]
 [*][b]Fixed:[/b] in Career and Sandbox, animals the game kept boxing again (seen with aquatic animals) stayed boxed for minutes, long enough for guest protests. Guardian worked for a few minutes after loading and then seemed to stop. The 2-minute pause after 3 tries is now for Franchise zoos only (where the server can refuse), and even there the animal is first transported to its habitat once.

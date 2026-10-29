@@ -30,7 +30,7 @@ local math      = global.math
 
 local Core = module(...)
 
-Core.sVersion = "1.2.2"
+Core.sVersion = "1.2.3"
 Core.bBooted = false
 
 Core.sOverlayName = "PZ2GuardianUI"
@@ -43,6 +43,8 @@ Core.tReplaceable = {
 	hud = {
 		["coui://UIGameface/HUD.html"] = true,
 		["coui://UIGameface/PZ2QoLHUD.html"] = true,
+		-- More Path Stamp Sizes: swaps exactly HUD.html in Init, like the Toolbox
+		["coui://UIGameface/MorePathStampSizesHUD.html"] = true,
 		["coui://UIGameface/PZ2AutoHubHUD.html"] = true,
 		["coui://UIGameface/PZ2TimeWarpHUD.html"] = true,
 		["coui://UIGameface/PZ2BreedAdvisorHUD.html"] = true,
@@ -284,8 +286,83 @@ Core._PatchLoad = function(self, tClass, sKind)
 	self.tLoadState[sKind] = "hooked"
 end
 
+-----------------------------------------------------------------------
+-- the shared HUD registry of PZ2Essentials and other mods built from its
+-- template (raw global PZ2HUDMods, version 2). Those mods swap the HUD page
+-- in Init; their page's loader asks Lua for every registered mod's scripts
+-- and imports them, and their ready hook calls each mod's OnReady. On such
+-- a page we join instead of taking it over (taking it would drop their UI;
+-- leaving it without joining dropped ours).
+-----------------------------------------------------------------------
+Core.tSharedScripts = { HUD = { "/js/mods/pz2guardian/main.js" } }
+Core.tSharedUIs = global.setmetatable({}, { __mode = "k" }) -- view wrappers we joined
+
+Core._SharedRegistry = function(self)
+	local R = global.rawget(global, "PZ2HUDMods")
+	if type(R) ~= "table" or R.nVersion ~= 2 then
+		R = {
+			nVersion = 2,
+			tMods = {},
+			tPages = {},
+			tWrapped = global.setmetatable({}, { __mode = "k" }),
+			tUIs = {},
+		}
+		global.rawset(global, "PZ2HUDMods", R)
+	end
+	return R
+end
+
+-- (Re)adds us to the registry; idempotent.
+Core._JoinShared = function(self)
+	local R = self:_SharedRegistry()
+	if self.tSharedEntry == nil then
+		self.tSharedEntry = {
+			tScripts = self.tSharedScripts,
+			IsReady = function()
+				return self.sOverlayState == "mapped" and self.bProbeOk
+			end,
+			OnReady = function(sView, oUI)
+				if sView ~= "HUD" or not self.tSharedUIs[oUI] then
+					return
+				end
+				self.tViews.hud = oUI
+				local bOk, sErr = pcall(self._OnReady, self, oUI, "hud")
+				if not bOk then
+					self.tLoadState.hud = "ready failed: " .. tostring(sErr)
+				end
+			end,
+		}
+	end
+	R.tMods["PZ2Guardian"] = self.tSharedEntry
+	return R
+end
+
+-- True when the view shows a shared-registry page whose ready hook is set.
+Core._JoinSharedPage = function(self, oUI, sKind, sAddress)
+	if sKind ~= "hud" then
+		return false
+	end
+	local R = self:_JoinShared()
+	if R.tPages[sAddress] ~= "HUD" or not R.tWrapped[oUI] then
+		return false
+	end
+	self:_TryMap()
+	if self.sOverlayState ~= "mapped" or not self.bProbeOk then
+		self.tLoadState[sKind] = "left " .. tostring(sAddress) .. " (overlay " .. self.sOverlayState .. ", probe " .. tostring(self.bProbeOk) .. ")"
+		return true
+	end
+	self.tSharedUIs[oUI] = true
+	self.tViews[sKind] = oUI
+	self.tTookFrom[sKind] = sAddress
+	self.tLoadState[sKind] = "joined " .. sAddress .. " (shared page)"
+	return true
+end
+
 Core._TakeOver = function(self, oUI, sKind, sModPage)
 	local sAddress = type(oUI) == "table" and oUI.sViewAddress or nil
+	if self:_JoinSharedPage(oUI, sKind, sAddress) then
+		return
+	end
 	if not self.tReplaceable[sKind][sAddress] then
 		return
 	end
@@ -436,8 +513,17 @@ Core._OnReady = function(self, oUI, sKind)
 		local bOk, sResult = pcall(self.StoreWrite, self, sText)
 		self:Send(sKind, "PZ2Guardian_StoreSaved", bOk and sResult or ("error: " .. tostring(sResult)))
 	end)
-	-- the saved settings go with the hello, so the page has them before it
-	-- hands its settings to Lua
+	-- a page that loads our script after the view was ready (a shared page's
+	-- loader imports it late) missed the hello and asks for it again
+	listen(oUI, "PZ2Guardian_HelloAgain", 1, function()
+		self:_SendHello(sKind)
+	end)
+	self:_SendHello(sKind)
+end
+
+-- the saved settings go with the hello, so the page has them before it
+-- hands its settings to Lua
+Core._SendHello = function(self, sKind)
 	local bRead, sText, sStatus = pcall(self.StoreRead, self)
 	if not bRead then
 		sText, sStatus = "", "error: " .. tostring(sText)
@@ -573,6 +659,7 @@ Core.Boot = function(self)
 		self.oGuard = nil
 		trace("guard module failed to init: " .. tostring(sErr))
 	end
+	pcall(self._JoinShared, self)
 	self:AddModulePatch("UI.Controllers.HUDUI", function(t) self:_PatchLoad(t, "hud") end)
 	self:AddModulePatch("Game.GameScript", function(t) self:_PatchGameScript(t) end)
 	self:AddModulePatch("Worlds.DarwinWorld", function(t) self:_PatchDarwinWorld(t) end)

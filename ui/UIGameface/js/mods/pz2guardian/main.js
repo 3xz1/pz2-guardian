@@ -11,7 +11,7 @@
 import { loadCSS } from '/js/common/util/CSSUtil.js';
 import { addPauseMenuEntry, refreshPauseMenu } from './pausemenu.js';
 
-const VERSION = '1.2.2';
+const VERSION = '1.2.3';
 const SHOW_BTN_KEY = 'PZ2Guardian.screenButton';
 const TICK_MS = 3000;
 const POS_KEY = 'PZ2Guardian.buttonPos';
@@ -608,6 +608,18 @@ engine.on('PZ2Guardian_Log', text => {
 setInterval(() => {
     if (connected) engine.trigger('PZ2Guardian_Tick', 1);
 }, TICK_MS);
+// On a shared page (PZ2Essentials' loader) this script is imported after
+// the view was ready, so Lua's hello went out before we listened: ask again.
+let helloAsks = 0;
+const helloTimer = setInterval(() => {
+    if (connected || ++helloAsks > 60) return clearInterval(helloTimer);
+    try {
+        engine.trigger('PZ2Guardian_HelloAgain', 1);
+    }
+    catch (e) {
+        // the engine is not ready yet; ask again next time
+    }
+}, 2000);
 
 try {
     loadCSS('mods/pz2guardian');
